@@ -43,6 +43,17 @@ Running the provided `AnomalyDetector` against all ten records produced two read
 
 The detector correctly identified the abnormal metric behavior and retained the complete source record in each event. It missed the expected log-based anomaly signal for both records: the implementation currently checks for `WARNING`, while the concerning records use `ERROR`. No normal event was incorrectly flagged. This is a limitation of the static rule set; a correction should recognize the log levels present in the operational data, and a future improvement could combine configurable log-severity rules with adaptive or time-window-based thresholds.
 
+## Event-Processing Flow
+
+The event workflow uses the existing in-memory components:
+
+1. The detector creates an anomaly event containing the service, timestamp, reasons, and source record.
+2. `EventProducer` receives the event and publishes it to its configured `EventTopic`.
+3. `EventTopic` stores the message in memory.
+4. `EventConsumer` reads messages from the topic it was given and returns them to the pipeline as downstream AIOps input.
+
+The initial execution confirmed event creation and producer publication but exposed a wiring problem. `aiops_pipeline.py` publishes to `service-events` and constructs the consumer with a different `anomaly-events` topic. The result was 10 records processed, 2 anomalies detected, and 0 events consumed. The producer and consumer must share the same anomaly topic for the event to complete the flow. A separate import-path issue also appears when importing the pipeline as `src.aiops_pipeline`; its top-level sibling imports currently require running the script directly or setting `PYTHONPATH=src`.
+
 ---
 
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
