@@ -1,74 +1,83 @@
 # AIOps Payment-Service Assessment
 
-## Scenario
+## What This Project Is About
 
-This repository monitors a synthetic `payment-service`. Each operational record contains a timestamp, service name, response-time and resource-utilization metrics, plus a log level and message. The service normally processes payment requests quickly, but a short incident occurs when requests time out and database connectivity degrades.
+This small project watches a fictional `payment-service`. Most requests are handled normally, but the sample data includes a brief incident where payment requests slow down and the database starts timing out.
 
-The operational problem is detecting that incident promptly from both telemetry and logs. High latency, CPU or memory utilization, and concerning log events should be turned into an actionable anomaly event instead of being discovered only after users report failed or slow payments.
+The practical problem is spotting that incident from the service's metrics and logs before it becomes a larger user-facing issue. In this exercise, AIOps is the glue between those steps: it finds unusual telemetry, turns it into an event, and passes that event through a simple streaming pipeline for further handling.
 
-AIOps in this assessment connects those steps: it analyzes service telemetry, identifies abnormal observations, publishes anomaly events, and passes them through a simulated event-streaming workflow for downstream processing.
+## Where Things Live
 
-## Repository Components
+- [data/service_data.json](data/service_data.json) contains the ten sample service records.
+- [src/anomaly_detector.py](src/anomaly_detector.py) applies the response-time, CPU, memory, and log-level rules.
+- [src/event_producer.py](src/event_producer.py) publishes anomaly events.
+- [src/event_topic.py](src/event_topic.py) provides the in-memory topic used by the simulation.
+- [src/event_consumer.py](src/event_consumer.py) reads events from that topic.
+- [src/aiops_pipeline.py](src/aiops_pipeline.py) connects data loading, detection, publishing, and consumption.
+- [tests/test_aiops_pipeline.py](tests/test_aiops_pipeline.py) checks the detector and event flow.
+- [src/calculations.py](src/calculations.py) and [tests/calculations_test.py](tests/calculations_test.py) are the original calculation example and its tests.
 
-- [data/service_data.json](data/service_data.json) is the operational dataset. Its numeric fields are metrics; `timestamp`, `log_level`, and `message` provide log and event context.
-- [src/anomaly_detector.py](src/anomaly_detector.py) applies threshold-based rules and creates an anomaly event containing the original record and detection reasons.
-- [src/event_producer.py](src/event_producer.py) publishes anomaly events to an in-memory topic.
-- [src/event_topic.py](src/event_topic.py) is the in-memory event topic that stores published messages.
-- [src/event_consumer.py](src/event_consumer.py) reads messages from the topic for downstream handling.
-- [src/aiops_pipeline.py](src/aiops_pipeline.py) loads the operational data, runs detection, sends detected events through the producer, and collects consumer output.
-- [src/calculations.py](src/calculations.py) contains unrelated example calculation functions covered by the existing unit tests.
-- [tests/test_aiops_pipeline.py](tests/test_aiops_pipeline.py) covers the detector and event-flow components; [tests/calculations_test.py](tests/calculations_test.py) covers the calculation examples.
+## What the Data Shows
 
-The remaining sections record the observations, corrections, and reproducible execution results from the assessment workflow.
+The records cover `payment-service` from `2026-09-20T10:00:00` to `2026-09-20T10:09:00`, one record per minute. The timestamps make it possible to follow the incident in order.
 
-## Operational Data Analysis
+The metric fields are `response_time_ms`, `cpu_percent`, and `memory_percent`. The log fields are `log_level` and `message`; `service` identifies the source of each record. The detector uses thresholds of 500 ms for response time and 80% for both CPU and memory.
 
-The dataset contains ten records for `payment-service`, sampled at one-minute intervals from `2026-09-20T10:00:00` through `2026-09-20T10:09:00`. The ISO-like timestamps provide event ordering and make the incident timeline visible.
+The normal baseline is visible from 10:00 to 10:04 and again from 10:07 to 10:09. Those records have `INFO` logs, response times between 120 and 150 ms, CPU between 42% and 50%, and memory between 51% and 57%.
 
-- **Metrics:** `response_time_ms`, `cpu_percent`, and `memory_percent` are numeric service metrics. The detector compares them with thresholds of 500 ms, 80%, and 80%, respectively.
-- **Log information:** `log_level` and `message` describe the corresponding service log event. `timestamp` identifies when both the metrics and log entry were observed; `service` identifies their source.
-- **Normal observations:** 10:00–10:04 and 10:07–10:09 have `INFO` logs, response times from 120–150 ms, CPU from 42–50%, and memory from 51–57%. These values are stable and below the configured anomaly thresholds.
-- **Unusual observations:** 10:05 reports a 610 ms response time and an `ERROR` message, `Payment service timeout`. At 10:06, response time increases to 640 ms, CPU to 94%, memory to 91%, and the `ERROR` message is `Database connection timeout`. Together these records indicate a short payment-service/database incident.
+The two unusual records are:
 
-The expected anomaly set is therefore the two records at 10:05 and 10:06. The 10:05 record is anomalous because of latency and its error log; the 10:06 record is anomalous because of latency, CPU, memory, and its error log.
+- **10:05:** response time reaches 610 ms and the service logs `ERROR: Payment service timeout`.
+- **10:06:** response time reaches 640 ms, CPU reaches 94%, memory reaches 91%, and the service logs `ERROR: Database connection timeout`.
 
-## Anomaly-Detection Findings
+These are the two records the analysis should identify as the incident.
 
-Running the provided `AnomalyDetector` against all ten records produced two readable anomaly events and did not flag any normal observation:
+## Detection Results
 
-| Timestamp | Log information | Detected reasons |
+Before the correction, the detector found both incident records from their metrics and did not flag any normal records:
+
+| Time | Log entry | Initial reasons |
 | --- | --- | --- |
-| `2026-09-20T10:05:00` | `ERROR` - Payment service timeout | High response time |
-| `2026-09-20T10:06:00` | `ERROR` - Database connection timeout | High response time; high CPU utilization; high memory utilization |
+| `10:05` | `ERROR: Payment service timeout` | High response time |
+| `10:06` | `ERROR: Database connection timeout` | High response time; high CPU utilization; high memory utilization |
 
-The detector correctly identified the abnormal metric behavior and retained the complete source record in each event. It missed the expected log-based anomaly signal for both records: the implementation currently checks for `WARNING`, while the concerning records use `ERROR`. No normal event was incorrectly flagged. This is a limitation of the static rule set; a correction should recognize the log levels present in the operational data, and a future improvement could combine configurable log-severity rules with adaptive or time-window-based thresholds.
+The original log rule looked for `WARNING`, while the supplied incident records use `ERROR`. As a result, the first run missed the log-based signal even though it correctly found the metric problems. The rule was changed to recognize `ERROR`. No normal event was incorrectly flagged.
 
-## Event-Processing Flow
+The detector is deliberately simple and uses fixed thresholds. A useful next step would be configurable log-severity rules and thresholds that adapt to the service's normal baseline.
 
-The event workflow uses the existing in-memory components:
+## Event Flow
 
-1. The detector creates an anomaly event containing the service, timestamp, reasons, and source record.
-2. `EventProducer` receives the event and publishes it to its configured `EventTopic`.
-3. `EventTopic` stores the message in memory.
-4. `EventConsumer` reads messages from the topic it was given and returns them to the pipeline as downstream AIOps input.
+The event path is intentionally small:
 
-The initial execution confirmed event creation and producer publication but exposed a wiring problem. `aiops_pipeline.py` publishes to `service-events` and constructs the consumer with a different `anomaly-events` topic. The result was 10 records processed, 2 anomalies detected, and 0 events consumed. The producer and consumer must share the same anomaly topic for the event to complete the flow. A separate import-path issue also appears when importing the pipeline as `src.aiops_pipeline`; its top-level sibling imports currently require running the script directly or setting `PYTHONPATH=src`.
+1. The detector creates an `ANOMALY` event and keeps the original record with it.
+2. `EventProducer` publishes the event to an `EventTopic`.
+3. The in-memory topic stores the message.
+4. `EventConsumer` reads the message and returns it to the pipeline as downstream AIOps input.
 
-## Troubleshooting and Corrections
+The first pipeline run produced two events but consumed none. The producer was writing to `service-events`, while the consumer was reading from a different `anomaly-events` topic. The pipeline was corrected to share one `anomaly-events` instance.
 
-Three issues were corrected within the existing architecture:
+There was also an import issue: the modules used top-level sibling imports, so importing the pipeline as `src.aiops_pipeline` failed. Package-compatible imports were added while keeping the original direct-script entry point working.
 
-| Component | Cause | Correction and verification |
-| --- | --- | --- |
-| `AnomalyDetector` | The log rule checked for `WARNING`, but the supplied concerning records use `ERROR`. | Changed the rule to recognize `ERROR`. A focused run confirmed both incident events include `Error log detected` and all eight normal records remain unflagged. |
-| `aiops_pipeline.py` topic wiring | The producer used `service-events` while the consumer used a separate `anomaly-events` instance. | Created one shared `anomaly-events` topic for both components. The pipeline then published and consumed both anomaly events. |
-| Pipeline and event-component imports | Sibling modules used only top-level imports, so `src.aiops_pipeline` could not be imported as a package. | Added package-compatible imports with a direct-script fallback. Both `python3 src/aiops_pipeline.py` and package import execution now complete successfully. |
+## Final Run
 
-These changes preserve the detector, producer, topic, consumer, and pipeline architecture supplied by the assessment.
+After those corrections, the complete flow was:
 
-## Corrected End-to-End Result
+`Operational data -> anomaly detection -> event -> producer -> topic -> consumer -> AIOps output`
 
-The corrected execution processed 10 operational records, detected 2 anomalies, generated 2 `ANOMALY` events, published them to the shared topic, and consumed both events downstream. The final events represent the payment-service timeout at `10:05` and the database connection timeout at `10:06`; their reasons include the relevant metric breaches and `Error log detected`.
+The final run processed 10 records, found 2 anomalies, published 2 events, and consumed both events. The output identified the payment timeout at 10:05 and the database connection timeout at 10:06, including their metric breaches and `Error log detected` as reasons.
+
+## Reproduce It
+
+From the repository root:
+
+```bash
+python3 src/aiops_pipeline.py
+python3 -m pytest -q
+```
+
+The expected pipeline summary is 10 records processed, 2 anomalies detected, and 2 events consumed. The test suite passes with 8 tests.
+
+The bare `pytest -q` launcher may fail to import `src` in this container because of its executable path. `python3 -m pytest -q` uses the active interpreter and is the reliable validation command here.
 
 ---
 
