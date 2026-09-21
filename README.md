@@ -54,6 +54,22 @@ The event workflow uses the existing in-memory components:
 
 The initial execution confirmed event creation and producer publication but exposed a wiring problem. `aiops_pipeline.py` publishes to `service-events` and constructs the consumer with a different `anomaly-events` topic. The result was 10 records processed, 2 anomalies detected, and 0 events consumed. The producer and consumer must share the same anomaly topic for the event to complete the flow. A separate import-path issue also appears when importing the pipeline as `src.aiops_pipeline`; its top-level sibling imports currently require running the script directly or setting `PYTHONPATH=src`.
 
+## Troubleshooting and Corrections
+
+Three issues were corrected within the existing architecture:
+
+| Component | Cause | Correction and verification |
+| --- | --- | --- |
+| `AnomalyDetector` | The log rule checked for `WARNING`, but the supplied concerning records use `ERROR`. | Changed the rule to recognize `ERROR`. A focused run confirmed both incident events include `Error log detected` and all eight normal records remain unflagged. |
+| `aiops_pipeline.py` topic wiring | The producer used `service-events` while the consumer used a separate `anomaly-events` instance. | Created one shared `anomaly-events` topic for both components. The pipeline then published and consumed both anomaly events. |
+| Pipeline and event-component imports | Sibling modules used only top-level imports, so `src.aiops_pipeline` could not be imported as a package. | Added package-compatible imports with a direct-script fallback. Both `python3 src/aiops_pipeline.py` and package import execution now complete successfully. |
+
+These changes preserve the detector, producer, topic, consumer, and pipeline architecture supplied by the assessment.
+
+## Corrected End-to-End Result
+
+The corrected execution processed 10 operational records, detected 2 anomalies, generated 2 `ANOMALY` events, published them to the shared topic, and consumed both events downstream. The final events represent the payment-service timeout at `10:05` and the database connection timeout at `10:06`; their reasons include the relevant metric breaches and `Error log detected`.
+
 ---
 
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
