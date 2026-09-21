@@ -32,6 +32,17 @@ The dataset contains ten records for `payment-service`, sampled at one-minute in
 
 The expected anomaly set is therefore the two records at 10:05 and 10:06. The 10:05 record is anomalous because of latency and its error log; the 10:06 record is anomalous because of latency, CPU, memory, and its error log.
 
+## Anomaly-Detection Findings
+
+Running the provided `AnomalyDetector` against all ten records produced two readable anomaly events and did not flag any normal observation:
+
+| Timestamp | Log information | Detected reasons |
+| --- | --- | --- |
+| `2026-09-20T10:05:00` | `ERROR` - Payment service timeout | High response time |
+| `2026-09-20T10:06:00` | `ERROR` - Database connection timeout | High response time; high CPU utilization; high memory utilization |
+
+The detector correctly identified the abnormal metric behavior and retained the complete source record in each event. It missed the expected log-based anomaly signal for both records: the implementation currently checks for `WARNING`, while the concerning records use `ERROR`. No normal event was incorrectly flagged. This is a limitation of the static rule set; a correction should recognize the log levels present in the operational data, and a future improvement could combine configurable log-severity rules with adaptive or time-window-based thresholds.
+
 ---
 
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
