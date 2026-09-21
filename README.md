@@ -21,6 +21,17 @@ AIOps in this assessment connects those steps: it analyzes service telemetry, id
 
 The remaining sections record the observations, corrections, and reproducible execution results from the assessment workflow.
 
+## Operational Data Analysis
+
+The dataset contains ten records for `payment-service`, sampled at one-minute intervals from `2026-09-20T10:00:00` through `2026-09-20T10:09:00`. The ISO-like timestamps provide event ordering and make the incident timeline visible.
+
+- **Metrics:** `response_time_ms`, `cpu_percent`, and `memory_percent` are numeric service metrics. The detector compares them with thresholds of 500 ms, 80%, and 80%, respectively.
+- **Log information:** `log_level` and `message` describe the corresponding service log event. `timestamp` identifies when both the metrics and log entry were observed; `service` identifies their source.
+- **Normal observations:** 10:00–10:04 and 10:07–10:09 have `INFO` logs, response times from 120–150 ms, CPU from 42–50%, and memory from 51–57%. These values are stable and below the configured anomaly thresholds.
+- **Unusual observations:** 10:05 reports a 610 ms response time and an `ERROR` message, `Payment service timeout`. At 10:06, response time increases to 640 ms, CPU to 94%, memory to 91%, and the `ERROR` message is `Database connection timeout`. Together these records indicate a short payment-service/database incident.
+
+The expected anomaly set is therefore the two records at 10:05 and 10:06. The 10:05 record is anomalous because of latency and its error log; the 10:06 record is anomalous because of latency, CPU, memory, and its error log.
+
 ---
 
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
